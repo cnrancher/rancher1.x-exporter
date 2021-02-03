@@ -1,20 +1,15 @@
 #############
 # phase one #
 #############
-FROM golang:1.9.2-alpine3.7 AS builder
+FROM golang:1.15.7-alpine AS builder
 
-RUN apk add --no-cache --update \
-	    curl \
-        git \
-    ; \
-    curl -fsSL -o /usr/local/bin/dep https://github.com/golang/dep/releases/download/v0.3.2/dep-linux-amd64; \
-    chmod +x /usr/local/bin/dep; \
-    go get -u github.com/prometheus/promu; \
-    git clone https://github.com/thxcode/rancher1.x-exporter.git $GOPATH/src/github.com/thxcode/rancher1.x-exporter
-
+ENV GOPROXY="https://goproxy.cn,direct"
+RUN apk add --no-cache --update curl git && \
+    mkdir -p ${GOPATH}/src/github.com/cnrancher && \
+    go get -u github.com/prometheus/promu
+COPY . $GOPATH/src/github.com/cnrancher/rancher1.x-exporter
 ## build
-RUN cd $GOPATH/src/github.com/thxcode/rancher1.x-exporter; \
-    dep ensure -v; \
+RUN cd $GOPATH/src/github.com/cnrancher/rancher1.x-exporter; \
     $GOPATH/bin/promu build --prefix ./.build; \
     mkdir -p /build; \
     cp -f ./.build/rancher-exporter /build/
@@ -22,30 +17,24 @@ RUN cd $GOPATH/src/github.com/thxcode/rancher1.x-exporter; \
 #############
 # phase two #
 #############
-FROM alpine:3.7
+FROM alpine:3.7 AS runner
 
-MAINTAINER Frank Mai <frank@rancher.com>
-
-ARG BUILD_DATE
-ARG VCS_REF
 ARG VERSION
 
 LABEL \
-    io.github.thxcode.build-date=$BUILD_DATE \
-    io.github.thxcode.name="rancher1.x-exporter" \
-    io.github.thxcode.description="An exporter exposes some metrics of Rancher1.x to Prometheus." \
-    io.github.thxcode.url="https://github.com/thxcode/rancher1.x-exporter" \
-    io.github.thxcode.vcs-type="Git" \
-    io.github.thxcode.vcs-ref=$VCS_REF \
-    io.github.thxcode.vcs-url="https://github.com/thxcode/rancher1.x-exporter.git" \
-    io.github.thxcode.vendor="Rancher Labs, Inc" \
-    io.github.thxcode.version=$VERSION \
-    io.github.thxcode.schema-version="1.0" \
-    io.github.thxcode.license="MIT" \
-    io.github.thxcode.docker.dockerfile="/Dockerfile"
+    org.label-schema.name="rancher1.x-exporter" \
+    org.label-schema.description="An exporter exposes some metrics of Rancher1.x to Prometheus." \
+    org.label-schema.url="https://github.com/cnrancher/rancher1.x-exporter" \
+    org.label-schema.vcs-type="Git" \
+    org.label-schema.vcs-url="https://github.com/cnrancher/rancher1.x-exporter.git" \
+    org.label-schema.vendor="Rancher Labs, Inc" \
+    org.label-schema.version=$VERSION \
+    org.label-schema.schema-version="1.0" \
+    org.label-schema.license="Apache 2.0" \
+    org.label-schema.docker.dockerfile="/Dockerfile"
 
 RUN apk add --no-cache --update \
-        ca-certificates \
+    ca-certificates \
     ; \
     mkdir -p /data; \
     chown -R nobody:nogroup /data; \

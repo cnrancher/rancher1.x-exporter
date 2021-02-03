@@ -30,15 +30,16 @@ COMMANDS:
      help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-  --listen_address value     The address of scraping the metrics (default: "0.0.0.0:9173") [$LISTEN_ADDRESS]
-  --metric_path value        The path of exposing metrics (default: "/metrics") [$METRIC_PATH]
-  --cattle_url value         The URL of Rancher Server API, e.g. http://127.0.0.1:8080 [$CATTLE_URL]
-  --cattle_access_key value  The access key for Rancher API [$CATTLE_ACCESS_KEY]
-  --cattle_secret_key value  The secret key for Rancher API [$CATTLE_SECRET_KEY]
-  --log_level value          Set the logging level (default: "debug") [$LOG_LEVEL]
-  --hide_sys                 Hide the system metrics [$HIDE_SYS]
-  --help, -h                 show help
-  --version, -v              print the version
+   --listen_address value     The address of scraping the metrics (default: "0.0.0.0:9173") [$LISTEN_ADDRESS]
+   --metric_path value        The path of exposing metrics (default: "/metrics") [$METRIC_PATH]
+   --cattle_url value         The URL of Rancher Server API, e.g. http://127.0.0.1:8080 [$CATTLE_URL]
+   --cattle_access_key value  The access key for Rancher API [$CATTLE_ACCESS_KEY]
+   --cattle_secret_key value  The secret key for Rancher API [$CATTLE_SECRET_KEY]
+   --http_timeout value       (default: 30s)
+   --log_level value          Set the logging level (default: "info") [$LOG_LEVEL]
+   --hide_sys                 Hide the system metrics [$HIDE_SYS]
+   --help, -h                 show help
+   --version, -v              print the version
 
 ```
 
@@ -46,8 +47,8 @@ GLOBAL OPTIONS:
 
 To start a container, use the following:
 
-``` bash
-$ docker run -d --name test-re -p 9173:9173 -e CATTLE_URL=<cattel_url> -e CATTLE_ACCESS_KEY=<cattel_ak> -e CATTLE_SECRET_KEY=<cattel_sk> maiwj/rancher1.x-exporter
+```bash
+$ docker run -d --name test-re -p 9173:9173 -e CATTLE_URL=<cattel_url> -e CATTLE_ACCESS_KEY=<cattel_ak> -e CATTLE_SECRET_KEY=<cattel_sk> cnrancher/rancher1.x-exporter
 
 ```
 
