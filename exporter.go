@@ -2,18 +2,18 @@ package main
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
-	"time"
 
-	logger "github.com/Sirupsen/logrus"
 	"github.com/buger/jsonparser"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	logger "github.com/sirupsen/logrus"
 )
 
 const (
@@ -33,226 +33,9 @@ var (
 	serviceStates = []string{"activating", "active", "canceled_upgrade", "canceling_upgrade", "deactivating", "finishing_upgrade", "inactive", "registering", "removed", "removing", "requested", "restarting", "rolling_back", "updating_active", "updating_inactive", "upgraded", "upgrading"}
 	healthStates  = []string{"healthy", "unhealthy"}
 
-	// health & state of host, stack, service
-	infinityWorksHostsState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "host_state",
-			Help:      "State of defined host as reported by the Rancher API",
-		}, []string{"id", "name", "state"})
-
-	infinityWorksHostAgentsState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "host_agent_state",
-			Help:      "State of defined host agent as reported by the Rancher API",
-		}, []string{"id", "name", "state"})
-
-	infinityWorksStacksHealth = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "stack_health_status",
-			Help:      "HealthState of defined stack as reported by Rancher",
-		}, []string{"id", "name", "health_state", "system"})
-
-	infinityWorksStacksState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "stack_state",
-			Help:      "State of defined stack as reported by Rancher",
-		}, []string{"id", "name", "state", "system"})
-
-	infinityWorksServicesScale = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "service_scale",
-			Help:      "scale of defined service as reported by Rancher",
-		}, []string{"name", "stack_name", "system"})
-
-	infinityWorksServicesHealth = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "service_health_status",
-			Help:      "HealthState of the service, as reported by the Rancher API",
-		}, []string{"id", "stack_id", "name", "stack_name", "health_state", "system"})
-
-	infinityWorksServicesState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "service_state",
-			Help:      "State of the service, as reported by the Rancher API",
-		}, []string{"id", "stack_id", "name", "stack_name", "state", "system"})
-
-	/**
-	Extended
-	*/
-
-	// total counter of stack, service, instance
-
-	extendingTotalStackInitializations = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_initialization_total",
-		Help:      "Current total number of the initialization stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalSuccessStackInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_initialization_success_total",
-		Help:      "Current total number of the healthy and active initialization stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalErrorStackInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_initialization_error_total",
-		Help:      "Current total number of the unhealthy or error initialization stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalServiceInitializations = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_initialization_total",
-		Help:      "Current total number of the initialization services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalSuccessServiceInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_initialization_success_total",
-		Help:      "Current total number of the healthy and active initialization services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalErrorServiceInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_initialization_error_total",
-		Help:      "Current total number of the unhealthy or error initialization services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalInstanceInitializations = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_initialization_total",
-		Help:      "Current total number of the initialization instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	extendingTotalSuccessInstanceInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_initialization_success_total",
-		Help:      "Current total number of the healthy and active initialization instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	extendingTotalErrorInstanceInitialization = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_initialization_error_total",
-		Help:      "Current total number of the unhealthy or error initialization instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	extendingTotalStackBootstraps = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_bootstrap_total",
-		Help:      "Current total number of the bootstrap stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalSuccessStackBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_bootstrap_success_total",
-		Help:      "Current total number of the healthy and active bootstrap stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalErrorStackBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "stacks_bootstrap_error_total",
-		Help:      "Current total number of the unhealthy or error bootstrap stacks in Rancher",
-	}, []string{"environment_name", "name"})
-
-	extendingTotalServiceBootstraps = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_bootstrap_total",
-		Help:      "Current total number of the bootstrap services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalSuccessServiceBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_bootstrap_success_total",
-		Help:      "Current total number of the healthy and active bootstrap services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalErrorServiceBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "services_bootstrap_error_total",
-		Help:      "Current total number of the unhealthy or error bootstrap services in Rancher",
-	}, []string{"environment_name", "stack_name", "name"})
-
-	extendingTotalInstanceBootstraps = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_bootstrap_total",
-		Help:      "Current total number of the bootstrap instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	extendingTotalSuccessInstanceBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_bootstrap_success_total",
-		Help:      "Current total number of the healthy and active bootstrap instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	extendingTotalErrorInstanceBootstrap = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace,
-		Name:      "instances_bootstrap_error_total",
-		Help:      "Current total number of the unhealthy or error bootstrap instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name"})
-
-	// startup gauge
-	extendingInstanceBootstrapMsCost = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Name:      "instance_bootstrap_ms",
-		Help:      "The bootstrap milliseconds of instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name", "system", "type"})
-
-	// heartbeat
-	extendingStackHeartbeat = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Name:      "stack_heartbeat",
-		Help:      "The heartbeat of stacks in Rancher",
-	}, []string{"environment_name", "name", "system", "type"})
-
-	extendingServiceHeartbeat = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Name:      "service_heartbeat",
-		Help:      "The heartbeat of services in Rancher",
-	}, []string{"environment_name", "stack_name", "name", "system", "type"})
-
-	extendingInstanceHeartbeat = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: namespace,
-		Name:      "instance_heartbeat",
-		Help:      "The heartbeat of instances in Rancher",
-	}, []string{"environment_name", "stack_name", "service_name", "name", "system", "type"})
+	projectID, projectName string
+	hc                     *httpClient
 )
-
-type httpClient struct {
-	client *http.Client
-}
-
-func (r *httpClient) get(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.SetBasicAuth(cattleAccessKey, cattleSecretKey)
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if bs, err := ioutil.ReadAll(resp.Body); err != nil {
-		return nil, err
-	} else {
-		return bs, nil
-	}
-}
-
-func newHttpClient(timeoutSeconds time.Duration) *httpClient {
-	return &httpClient{
-		&http.Client{Timeout: timeoutSeconds},
-	}
-}
 
 type buffMsg struct {
 	class         string
@@ -270,8 +53,6 @@ type buffMsg struct {
 RancherExporter
 */
 type rancherExporter struct {
-	projectId     string
-	projectName   string
 	mutex         *sync.Mutex
 	websocketConn *websocket.Conn
 
@@ -361,9 +142,6 @@ func (r *rancherExporter) asyncMetrics(ch chan<- prometheus.Metric) {
 }
 
 func (r *rancherExporter) syncMetrics(ch chan<- prometheus.Metric) {
-	projectId := r.projectId
-	projectName := r.projectName
-
 	defer func() {
 		if err := recover(); err != nil {
 			logger.Errorln(err)
@@ -384,197 +162,49 @@ func (r *rancherExporter) syncMetrics(ch chan<- prometheus.Metric) {
 	extendingServiceHeartbeat.Reset()
 	extendingInstanceHeartbeat.Reset()
 
-	hc := newHttpClient(60 * time.Second)
 	gwg := &sync.WaitGroup{}
 
+	// collect host metrics
 	gwg.Add(1)
 	go func() {
 		defer gwg.Done()
-
-		if hostsRespBytes, err := hc.get(cattleURL + "/hosts"); err != nil {
-			logger.Warnln(err)
-		} else {
-			jsonparser.ArrayEach(hostsRespBytes, func(hostBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-				hostName, _ := jsonparser.GetString(hostBytes, "name")
-				hostState, _ := jsonparser.GetString(hostBytes, "state")
-				hostId, _ := jsonparser.GetString(hostBytes, "id")
-				hostAgentState, _ := jsonparser.GetString(hostBytes, "agentState")
-
-				if len(hostName) == 0 {
-					hostName, _ = jsonparser.GetString(hostBytes, "hostname")
-				}
-
-				for _, y := range hostStates {
-					if hostState == y {
-						infinityWorksHostsState.WithLabelValues(hostId, hostName, y).Set(1)
-					} else {
-						infinityWorksHostsState.WithLabelValues(hostId, hostName, y).Set(0)
-					}
-				}
-
-				for _, y := range agentStates {
-					if hostAgentState == y {
-						infinityWorksHostAgentsState.WithLabelValues(hostId, hostName, y).Set(1)
-					} else {
-						infinityWorksHostAgentsState.WithLabelValues(hostId, hostName, y).Set(0)
-					}
-				}
-
-			}, "data")
+		if err := hc.foreachCollection(hostSubpath, nil, gwg, setHostMetrics); err != nil {
+			logger.Warnf("failed to set host metrics, %v", err)
 		}
 	}()
 
 	gwg.Add(1)
 	go func() {
+		stwg := &sync.WaitGroup{}
+		swg := &sync.WaitGroup{}
+		stackMap := &sync.Map{}
+		serviceMap := &sync.Map{}
 		defer gwg.Done()
-
-		stacksAddress := cattleURL + "/projects/" + projectId + "/stacks?limit=100&sort=id"
-		if hideSys {
-			stacksAddress += "&system=false"
+		// collect stack metrics
+		if err := hc.foreachCollection(stackSubpath, nil, stwg, func(data []byte) {
+			stackID, stackName := setStackMetrics(data)
+			stackMap.Store(stackID, stackName)
+		}); err != nil {
+			logger.Warnf("failed to set stack metrics, %v", err)
 		}
+		stwg.Wait()
 
-		stkwg := &sync.WaitGroup{}
-		for {
-			if stacksRespBytes, err := hc.get(stacksAddress); err != nil {
-				logger.Errorln(stacksAddress, err)
-				break
-			} else {
-				jsonparser.ArrayEach(stacksRespBytes, func(stackBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-
-					stkwg.Add(1)
-					go func() {
-						defer stkwg.Done()
-
-						stackId, _ := jsonparser.GetString(stackBytes, "id")
-						stackName, _ := jsonparser.GetString(stackBytes, "name")
-						stackSystem, _ := jsonparser.GetUnsafeString(stackBytes, "system")
-						stackType, _ := jsonparser.GetString(stackBytes, "type")
-						stackHealthState, _ := jsonparser.GetString(stackBytes, "healthState")
-						stackState, _ := jsonparser.GetString(stackBytes, "state")
-
-						for _, y := range healthStates {
-							if stackHealthState == y {
-								infinityWorksStacksHealth.WithLabelValues(stackId, stackName, y, stackSystem).Set(1)
-							} else {
-								infinityWorksStacksHealth.WithLabelValues(stackId, stackName, y, stackSystem).Set(0)
-							}
-						}
-
-						for _, y := range stackStates {
-							if stackState == y {
-								infinityWorksStacksState.WithLabelValues(stackId, stackName, y, stackSystem).Set(1)
-							} else {
-								infinityWorksStacksState.WithLabelValues(stackId, stackName, y, stackSystem).Set(0)
-							}
-						}
-
-						extendingStackHeartbeat.WithLabelValues(projectName, stackName, stackSystem, stackType).Set(float64(1))
-
-						servicesAddress := cattleURL + "/stacks/" + stackId + "/services?limit=100&sort=id"
-						if hideSys {
-							servicesAddress += "&system=false"
-						}
-
-						svcwg := &sync.WaitGroup{}
-						for {
-							if servicesRespBytes, err := hc.get(servicesAddress); err != nil {
-								logger.Errorln(servicesAddress, err)
-								break
-							} else {
-								jsonparser.ArrayEach(servicesRespBytes, func(serviceBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-
-									svcwg.Add(1)
-									go func() {
-										defer svcwg.Done()
-
-										serviceId, _ := jsonparser.GetString(serviceBytes, "id")
-										serviceName, _ := jsonparser.GetString(serviceBytes, "name")
-										serviceSystem, _ := jsonparser.GetUnsafeString(serviceBytes, "system")
-										serviceType, _ := jsonparser.GetString(serviceBytes, "type")
-										serviceHealthState, _ := jsonparser.GetString(serviceBytes, "healthState")
-										serviceState, _ := jsonparser.GetString(serviceBytes, "state")
-										serviceScale, _ := jsonparser.GetInt(serviceBytes, "scale")
-
-										infinityWorksServicesScale.WithLabelValues(serviceName, stackName, serviceSystem).Set(float64(serviceScale))
-										for _, y := range healthStates {
-											if serviceHealthState == y {
-												infinityWorksServicesHealth.WithLabelValues(serviceId, stackId, serviceName, stackName, y, serviceSystem).Set(1)
-											} else {
-												infinityWorksServicesHealth.WithLabelValues(serviceId, stackId, serviceName, stackName, y, serviceSystem).Set(0)
-											}
-										}
-
-										for _, y := range serviceStates {
-											if serviceState == y {
-												infinityWorksServicesState.WithLabelValues(serviceId, stackId, serviceName, stackName, y, serviceSystem).Set(1)
-											} else {
-												infinityWorksServicesState.WithLabelValues(serviceId, stackId, serviceName, stackName, y, serviceSystem).Set(0)
-											}
-										}
-
-										extendingServiceHeartbeat.WithLabelValues(projectName, stackName, serviceName, serviceSystem, serviceType).Set(float64(1))
-
-										instancesAddress := cattleURL + "/services/" + serviceId + "/instances?limit=100&sort=id"
-										if hideSys {
-											instancesAddress += "&system=false"
-										}
-
-										for {
-											if instancesRespBytes, err := hc.get(instancesAddress); err != nil {
-												logger.Errorln(instancesAddress, err)
-												break
-											} else {
-												jsonparser.ArrayEach(instancesRespBytes, func(instanceBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-													instanceName, _ := jsonparser.GetString(instanceBytes, "name")
-													instanceSystem, _ := jsonparser.GetUnsafeString(instanceBytes, "system")
-													instanceType, _ := jsonparser.GetString(instanceBytes, "type")
-
-													extendingInstanceHeartbeat.WithLabelValues(projectName, stackName, serviceName, instanceName, instanceSystem, instanceType).Set(float64(1))
-
-													if instanceFirstRunningTS, _ := jsonparser.GetInt(instanceBytes, "firstRunningTS"); instanceFirstRunningTS != 0 {
-														instanceCreatedTS, _ := jsonparser.GetInt(instanceBytes, "createdTS")
-														extendingInstanceBootstrapMsCost.WithLabelValues(projectName, stackName, serviceName, instanceName, instanceSystem, instanceType).Set(float64(instanceFirstRunningTS - instanceCreatedTS))
-													}
-
-												}, "data")
-
-												if next, _ := jsonparser.GetString(instancesRespBytes, "pagination", "next"); len(next) == 0 {
-													break
-												} else {
-													instancesAddress = next
-												}
-
-											}
-
-										}
-
-									}()
-
-								}, "data")
-
-								if next, _ := jsonparser.GetString(servicesRespBytes, "pagination", "next"); len(next) == 0 {
-									break
-								} else {
-									servicesAddress = next
-								}
-							}
-
-						}
-						svcwg.Wait()
-
-					}()
-
-				}, "data")
-
-				if next, _ := jsonparser.GetString(stacksRespBytes, "pagination", "next"); len(next) == 0 {
-					break
-				} else {
-					stacksAddress = next
-				}
-			}
+		// collect service metrics
+		if err := hc.foreachCollection(serviceSubpath, nil, swg, func(data []byte) {
+			serviceID, content := setServiceMetrics(stackMap, data)
+			serviceMap.Store(serviceID, content)
+		}); err != nil {
+			logger.Warnf("failed to set service metrics, %v", err)
 		}
-		stkwg.Wait()
+		swg.Wait()
 
+		// collect instance metrics
+
+		if err := hc.foreachCollection(instanceSubpath, nil, gwg, func(data []byte) {
+			setInstanceMetrics(serviceMap, data)
+		}); err != nil {
+			logrus.Warnf("failed to set instance metrics, %v", err)
+		}
 	}()
 
 	gwg.Wait()
@@ -594,229 +224,7 @@ func (r *rancherExporter) syncMetrics(ch chan<- prometheus.Metric) {
 }
 
 func (r *rancherExporter) collectingExtending() {
-	projectId := r.projectId
-	projectName := r.projectName
-
-	stackIdNameMap := &sync.Map{}
-
-	hc := newHttpClient(30 * time.Second)
-	stacksAddress := cattleURL + "/projects/" + projectId + "/stacks?limit=100&sort=id"
-	if hideSys {
-		stacksAddress += "&system=false"
-	}
-
-	// initialization
-	stkwg := &sync.WaitGroup{}
-	for {
-		if stacksRespBytes, err := hc.get(stacksAddress); err != nil {
-			logger.Errorln(stacksAddress, err)
-			break
-		} else {
-			jsonparser.ArrayEach(stacksRespBytes, func(stackBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-
-				stkwg.Add(1)
-				go func() {
-					defer stkwg.Done()
-
-					stackId, _ := jsonparser.GetString(stackBytes, "id")
-					stackName, _ := jsonparser.GetString(stackBytes, "name")
-					stackHealthState, _ := jsonparser.GetString(stackBytes, "healthState")
-					stackState, _ := jsonparser.GetString(stackBytes, "state")
-
-					stackIdNameMap.Store(stackId, stackName)
-
-					// init bootstrap
-					extendingTotalStackBootstraps.WithLabelValues(projectName, specialTag)
-					extendingTotalStackBootstraps.WithLabelValues(projectName, stackName)
-					extendingTotalSuccessStackBootstrap.WithLabelValues(projectName, specialTag)
-					extendingTotalSuccessStackBootstrap.WithLabelValues(projectName, stackName)
-					extendingTotalErrorStackBootstrap.WithLabelValues(projectName, specialTag)
-					extendingTotalErrorStackBootstrap.WithLabelValues(projectName, stackName)
-
-					switch stackState {
-					case "active":
-						if stackHealthState == "unhealthy" {
-							extendingTotalStackInitializations.WithLabelValues(projectName, specialTag).Inc()
-							extendingTotalStackInitializations.WithLabelValues(projectName, stackName).Inc()
-							extendingTotalSuccessStackInitialization.WithLabelValues(projectName, specialTag)
-							extendingTotalSuccessStackInitialization.WithLabelValues(projectName, stackName)
-							extendingTotalErrorStackInitialization.WithLabelValues(projectName, specialTag).Inc()
-							extendingTotalErrorStackInitialization.WithLabelValues(projectName, stackName).Inc()
-						} else if stackHealthState == "healthy" {
-							extendingTotalStackInitializations.WithLabelValues(projectName, specialTag).Inc()
-							extendingTotalStackInitializations.WithLabelValues(projectName, stackName).Inc()
-							extendingTotalSuccessStackInitialization.WithLabelValues(projectName, specialTag).Inc()
-							extendingTotalSuccessStackInitialization.WithLabelValues(projectName, stackName).Inc()
-							extendingTotalErrorStackInitialization.WithLabelValues(projectName, specialTag)
-							extendingTotalErrorStackInitialization.WithLabelValues(projectName, stackName)
-						}
-					case "error":
-						extendingTotalStackInitializations.WithLabelValues(projectName, specialTag).Inc()
-						extendingTotalStackInitializations.WithLabelValues(projectName, stackName).Inc()
-						extendingTotalSuccessStackInitialization.WithLabelValues(projectName, specialTag)
-						extendingTotalSuccessStackInitialization.WithLabelValues(projectName, stackName)
-						extendingTotalErrorStackInitialization.WithLabelValues(projectName, specialTag).Inc()
-						extendingTotalErrorStackInitialization.WithLabelValues(projectName, stackName).Inc()
-					}
-
-					servicesAddress := cattleURL + "/stacks/" + stackId + "/services?limit=100&sort=id"
-					if hideSys {
-						servicesAddress += "&system=false"
-					}
-
-					svcwg := &sync.WaitGroup{}
-					for {
-						if servicesRespBytes, err := hc.get(servicesAddress); err != nil {
-							logger.Errorln(servicesAddress, err)
-							break
-						} else {
-							jsonparser.ArrayEach(servicesRespBytes, func(serviceBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-
-								svcwg.Add(1)
-								go func() {
-									defer svcwg.Done()
-
-									serviceId, _ := jsonparser.GetString(serviceBytes, "id")
-									serviceName, _ := jsonparser.GetString(serviceBytes, "name")
-									serviceHealthState, _ := jsonparser.GetString(serviceBytes, "healthState")
-									serviceState, _ := jsonparser.GetString(serviceBytes, "state")
-
-									extendingTotalServiceBootstraps.WithLabelValues(projectName, specialTag, specialTag)
-									extendingTotalServiceBootstraps.WithLabelValues(projectName, stackName, specialTag)
-									extendingTotalServiceBootstraps.WithLabelValues(projectName, stackName, serviceName)
-									extendingTotalSuccessServiceBootstrap.WithLabelValues(projectName, specialTag, specialTag)
-									extendingTotalSuccessServiceBootstrap.WithLabelValues(projectName, stackName, specialTag)
-									extendingTotalSuccessServiceBootstrap.WithLabelValues(projectName, stackName, serviceName)
-									extendingTotalErrorServiceBootstrap.WithLabelValues(projectName, specialTag, specialTag)
-									extendingTotalErrorServiceBootstrap.WithLabelValues(projectName, stackName, specialTag)
-									extendingTotalErrorServiceBootstrap.WithLabelValues(projectName, stackName, serviceName)
-
-									switch serviceState {
-									case "active":
-										extendingTotalServiceInitializations.WithLabelValues(projectName, specialTag, specialTag).Inc()
-										extendingTotalServiceInitializations.WithLabelValues(projectName, stackName, specialTag).Inc()
-										extendingTotalServiceInitializations.WithLabelValues(projectName, stackName, serviceName).Inc()
-
-										if serviceHealthState == "unhealthy" {
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, specialTag, specialTag)
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, specialTag)
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, serviceName)
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, specialTag, specialTag).Inc()
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, specialTag).Inc()
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, serviceName).Inc()
-										} else if serviceHealthState == "healthy" {
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, specialTag, specialTag).Inc()
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, specialTag).Inc()
-											extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, serviceName).Inc()
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, specialTag, specialTag)
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, specialTag)
-											extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, serviceName)
-										}
-									case "error":
-										extendingTotalServiceInitializations.WithLabelValues(projectName, specialTag, specialTag).Inc()
-										extendingTotalServiceInitializations.WithLabelValues(projectName, stackName, specialTag).Inc()
-										extendingTotalServiceInitializations.WithLabelValues(projectName, stackName, serviceName).Inc()
-										extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, specialTag, specialTag)
-										extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, specialTag)
-										extendingTotalSuccessServiceInitialization.WithLabelValues(projectName, stackName, serviceName)
-										extendingTotalErrorServiceInitialization.WithLabelValues(projectName, specialTag, specialTag).Inc()
-										extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, specialTag).Inc()
-										extendingTotalErrorServiceInitialization.WithLabelValues(projectName, stackName, serviceName).Inc()
-									}
-
-									instancesAddress := cattleURL + "/services/" + serviceId + "/instances?limit=100&sort=id"
-									if hideSys {
-										instancesAddress += "&system=false"
-									}
-
-									for {
-										if instancesRespBytes, err := hc.get(instancesAddress); err != nil {
-											logger.Errorln(instancesAddress, err)
-											break
-										} else {
-											jsonparser.ArrayEach(instancesRespBytes, func(instanceBytes []byte, dataType jsonparser.ValueType, offset int, err error) {
-
-												instanceName, _ := jsonparser.GetString(instanceBytes, "name")
-												instanceSystem, _ := jsonparser.GetUnsafeString(instanceBytes, "system")
-												instanceType, _ := jsonparser.GetString(instanceBytes, "type")
-												instanceState, _ := jsonparser.GetString(instanceBytes, "state")
-												instanceFirstRunningTS, _ := jsonparser.GetInt(instanceBytes, "firstRunningTS")
-												instanceCreatedTS, _ := jsonparser.GetInt(instanceBytes, "createdTS")
-
-												extendingTotalInstanceBootstraps.WithLabelValues(projectName, specialTag, specialTag, specialTag)
-												extendingTotalInstanceBootstraps.WithLabelValues(projectName, stackName, specialTag, specialTag)
-												extendingTotalInstanceBootstraps.WithLabelValues(projectName, stackName, serviceName, specialTag)
-												extendingTotalInstanceBootstraps.WithLabelValues(projectName, stackName, serviceName, instanceName)
-												extendingTotalSuccessInstanceBootstrap.WithLabelValues(projectName, specialTag, specialTag, specialTag)
-												extendingTotalSuccessInstanceBootstrap.WithLabelValues(projectName, stackName, specialTag, specialTag)
-												extendingTotalSuccessInstanceBootstrap.WithLabelValues(projectName, stackName, serviceName, specialTag)
-												extendingTotalSuccessInstanceBootstrap.WithLabelValues(projectName, stackName, serviceName, instanceName)
-												extendingTotalErrorInstanceBootstrap.WithLabelValues(projectName, specialTag, specialTag, specialTag)
-												extendingTotalErrorInstanceBootstrap.WithLabelValues(projectName, stackName, specialTag, specialTag)
-												extendingTotalErrorInstanceBootstrap.WithLabelValues(projectName, stackName, serviceName, specialTag)
-												extendingTotalErrorInstanceBootstrap.WithLabelValues(projectName, stackName, serviceName, instanceName)
-
-												switch instanceState {
-												case "stopped":
-													fallthrough
-												case "running":
-													extendingTotalInstanceInitializations.WithLabelValues(projectName, specialTag, specialTag, specialTag).Inc()
-													extendingTotalInstanceInitializations.WithLabelValues(projectName, stackName, specialTag, specialTag).Inc()
-													extendingTotalInstanceInitializations.WithLabelValues(projectName, stackName, serviceName, specialTag).Inc()
-													extendingTotalInstanceInitializations.WithLabelValues(projectName, stackName, serviceName, instanceName).Inc()
-													extendingTotalSuccessInstanceInitialization.WithLabelValues(projectName, specialTag, specialTag, specialTag).Inc()
-													extendingTotalSuccessInstanceInitialization.WithLabelValues(projectName, stackName, specialTag, specialTag).Inc()
-													extendingTotalSuccessInstanceInitialization.WithLabelValues(projectName, stackName, serviceName, specialTag).Inc()
-													extendingTotalSuccessInstanceInitialization.WithLabelValues(projectName, stackName, serviceName, instanceName).Inc()
-													extendingTotalErrorInstanceInitialization.WithLabelValues(projectName, specialTag, specialTag, specialTag)
-													extendingTotalErrorInstanceInitialization.WithLabelValues(projectName, stackName, specialTag, specialTag)
-													extendingTotalErrorInstanceInitialization.WithLabelValues(projectName, stackName, serviceName, specialTag)
-													extendingTotalErrorInstanceInitialization.WithLabelValues(projectName, stackName, serviceName, instanceName)
-
-													if instanceFirstRunningTS != 0 {
-														instanceStartupTime := instanceFirstRunningTS - instanceCreatedTS
-														extendingInstanceBootstrapMsCost.WithLabelValues(projectName, stackName, serviceName, instanceName, instanceSystem, instanceType).Set(float64(instanceStartupTime))
-													}
-												}
-
-											}, "data")
-
-											if next, _ := jsonparser.GetString(instancesRespBytes, "pagination", "next"); len(next) == 0 {
-												break
-											} else {
-												instancesAddress = next
-											}
-
-										}
-
-									}
-
-								}()
-
-							}, "data")
-
-							if next, _ := jsonparser.GetString(servicesRespBytes, "pagination", "next"); len(next) == 0 {
-								break
-							} else {
-								servicesAddress = next
-							}
-						}
-
-					}
-					svcwg.Wait()
-
-				}()
-
-			}, "data")
-
-			if next, _ := jsonparser.GetString(stacksRespBytes, "pagination", "next"); len(next) == 0 {
-				break
-			} else {
-				stacksAddress = next
-			}
-		}
-	}
-	stkwg.Wait()
+	stackMap, _ := loadAndInitAggregatedMetrics()
 
 	// event watcher
 	go func() {
@@ -845,7 +253,7 @@ func (r *rancherExporter) collectingExtending() {
 
 				switch baseType {
 				case "stack":
-					stackIdNameMap.LoadOrStore(id, name)
+					stackMap.LoadOrStore(id, name)
 
 					r.msgBuff <- buffMsg{
 						class:         "stack",
@@ -858,13 +266,12 @@ func (r *rancherExporter) collectingExtending() {
 				case "service":
 					stackId, _ := jsonparser.GetString(resourceBytes, "stackId")
 					stackName := ""
-					if val, ok := stackIdNameMap.Load(stackId); ok {
+					if val, ok := stackMap.Load(stackId); ok {
 						stackName = val.(string)
-					} else if stackLink, err := jsonparser.GetString(resourceBytes, "links", "stack"); err == nil {
-						hc := newHttpClient(10 * time.Second)
-						if stackRespBytes, err := hc.get(stackLink); err == nil {
+					} else {
+						if stackRespBytes, err := hc.getByProject(path.Join(stackSubpath, stackId), nil); err == nil {
 							stackName, _ = jsonparser.GetString(stackRespBytes, "name")
-							stackIdNameMap.LoadOrStore(stackId, stackName)
+							stackMap.LoadOrStore(stackId, stackName)
 						}
 					}
 
@@ -883,8 +290,11 @@ func (r *rancherExporter) collectingExtending() {
 					labelStackServiceNameSplit := strings.Split(labelStackServiceName, "/")
 
 					serviceId, _ := jsonparser.GetString(resourceBytes, "serviceIds", "[0]")
+					var serviceName string
 					stackName := labelStackServiceNameSplit[0]
-					serviceName := labelStackServiceNameSplit[1]
+					if len(labelStackServiceNameSplit) > 1 {
+						serviceName = labelStackServiceNameSplit[1]
+					}
 
 					r.msgBuff <- buffMsg{
 						class:         "instance",
@@ -923,10 +333,10 @@ func (r *rancherExporter) collectingExtending() {
 			ins_running_reinitializing
 		)
 
-		stkMap := make(map[string]state, 0)
-		svcMap := make(map[string]state, 0)
-		insMap := make(map[string]state, 0)
-		svcParentIdMap := make(map[string]state, 0)
+		stkMap := make(map[string]state)
+		svcMap := make(map[string]state)
+		insMap := make(map[string]state)
+		svcParentIdMap := make(map[string]state)
 
 		stkCount := func(stackMsg *buffMsg) {
 			extendingTotalStackBootstraps.WithLabelValues(projectName, specialTag).Inc()
@@ -1026,7 +436,6 @@ func (r *rancherExporter) collectingExtending() {
 
 		for msg := range r.msgBuff {
 			logger.Debugf("[[%s]]: %+v", msg.class, msg)
-
 			switch msg.class {
 			case "stack":
 				// stack 1 service with 1 container with hc
@@ -1072,16 +481,16 @@ func (r *rancherExporter) collectingExtending() {
 								}
 
 								stkSuccess(&msg)
-							//case stk_active_degraded:
-							//	if svcParentIdMap[msg.id] == svc_restarting { // when restart Svc on 1Stk nSvc nIns, Stk want to know having Svc restarting in it or not.
-							//		continue
-							//	}
-							//
-							//	if svcParentIdMap[msg.id] == svc_upgrading { // when restart Svc on 1Stk nSvc nIns, Stk want to know having Svc upgrading in it or not.
-							//		continue
-							//	}
-							//
-							//	stkSuccess(&msg)
+								//case stk_active_degraded:
+								//	if svcParentIdMap[msg.id] == svc_restarting { // when restart Svc on 1Stk nSvc nIns, Stk want to know having Svc restarting in it or not.
+								//		continue
+								//	}
+								//
+								//	if svcParentIdMap[msg.id] == svc_upgrading { // when restart Svc on 1Stk nSvc nIns, Stk want to know having Svc upgrading in it or not.
+								//		continue
+								//	}
+								//
+								//	stkSuccess(&msg)
 							}
 						}
 					case "initializing":
@@ -1102,11 +511,11 @@ func (r *rancherExporter) collectingExtending() {
 								delete(stkMap, msg.id)
 							}
 						}
-					//case "degraded":
-					//	if _, ok := stkMap[msg.id]; !ok {
-					//		stkMap[msg.id] = stk_active_degraded
-					//		stkCount(&msg)
-					//	}
+						//case "degraded":
+						//	if _, ok := stkMap[msg.id]; !ok {
+						//		stkMap[msg.id] = stk_active_degraded
+						//		stkCount(&msg)
+						//	}
 					}
 				case "error":
 					if _, ok := stkMap[msg.id]; ok { // try
@@ -1121,7 +530,7 @@ func (r *rancherExporter) collectingExtending() {
 					}
 
 					delete(stkMap, msg.id)
-					stackIdNameMap.Delete(msg.id)
+					stackMap.Delete(msg.id)
 				}
 
 			case "service":
@@ -1374,33 +783,11 @@ func (r *rancherExporter) collectingExtending() {
 }
 
 func newRancherExporter() *rancherExporter {
-	hc := newHttpClient(10 * time.Second)
+	initHttpClient()
+	initProjectInfo()
 
-	// get project self link
-	projectsResponseBytes, err := hc.get(cattleURL + "/projects")
-	if err != nil {
-		panic(errors.New(fmt.Sprintf("cannot get project info, %v", err)))
-	}
+	projectLinksSelf := getSubAddress(hc.endpoint, "projects", projectID).String()
 
-	projectBytes, _, _, err := jsonparser.Get(projectsResponseBytes, "data", "[0]")
-	if err != nil {
-		panic(errors.New(fmt.Sprintf("cannot get project, %v", err)))
-	}
-
-	projectId, err := jsonparser.GetString(projectBytes, "id")
-	if err != nil {
-		panic(errors.New(fmt.Sprintf("cannot get project id, %v", err)))
-	}
-
-	projectName, err := jsonparser.GetString(projectBytes, "name")
-	if err != nil {
-		panic(errors.New(fmt.Sprintf("cannot get project name, %v", err)))
-	}
-
-	projectLinksSelf, err := jsonparser.GetString(projectBytes, "links", "self")
-	if err != nil {
-		panic(errors.New(fmt.Sprintf("cannot get project self address, %v", err)))
-	}
 	if strings.HasPrefix(projectLinksSelf, "http://") {
 		projectLinksSelf = strings.Replace(projectLinksSelf, "http://", "ws://", -1)
 	} else {
@@ -1420,8 +807,6 @@ func newRancherExporter() *rancherExporter {
 	}
 
 	result := &rancherExporter{
-		projectId:     projectId,
-		projectName:   projectName,
 		mutex:         &sync.Mutex{},
 		websocketConn: wbsFactory(),
 
@@ -1433,4 +818,70 @@ func newRancherExporter() *rancherExporter {
 	result.collectingExtending()
 
 	return result
+}
+
+func initProjectInfo() {
+	// get project self link
+	projectsResponseBytes, err := hc.get("projects", nil)
+	if err != nil {
+		panic(fmt.Errorf("cannot get project info, %v", err))
+	}
+
+	projectBytes, _, _, err := jsonparser.Get(projectsResponseBytes, "data", "[0]")
+	if err != nil {
+		panic(fmt.Errorf("cannot get project, %v", err))
+	}
+
+	projectID, err = jsonparser.GetString(projectBytes, "id")
+	if err != nil {
+		panic(fmt.Errorf("cannot get project id, %v", err))
+	}
+
+	projectName, err = jsonparser.GetString(projectBytes, "name")
+	if err != nil {
+		panic(fmt.Errorf("cannot get project name, %v", err))
+	}
+}
+
+func getSubAddress(base *url.URL, sub ...string) *url.URL {
+	newURL, _ := url.Parse(base.String())
+
+	newURL.Path += "/" + path.Join(sub...)
+	return newURL
+}
+
+func loadAndInitAggregatedMetrics() (*sync.Map, *sync.Map) {
+	// initialization
+	gwg := &sync.WaitGroup{}
+	stwg := &sync.WaitGroup{}
+	swg := &sync.WaitGroup{}
+	stackMap := &sync.Map{}
+	serviceMap := &sync.Map{}
+
+	if err := hc.foreachCollection(stackSubpath, nil, stwg, func(data []byte) {
+		stackID, stackName := setStackAggregatedMetrics(data)
+		stackMap.Store(stackID, stackName)
+	}); err != nil {
+		logger.Warnf("failed to set stack metrics, %v", err)
+	}
+	stwg.Wait()
+
+	// collect service metrics
+	if err := hc.foreachCollection(serviceSubpath, nil, swg, func(data []byte) {
+		serviceID, content := setServiceAggregatedMetrics(stackMap, data)
+		serviceMap.Store(serviceID, content)
+	}); err != nil {
+		logger.Warnf("failed to set service metrics, %v", err)
+	}
+	swg.Wait()
+
+	// collect instance metrics
+	if err := hc.foreachCollection(instanceSubpath, nil, gwg, func(data []byte) {
+		setInstanceAggregatedMetrics(serviceMap, data)
+	}); err != nil {
+		logrus.Warnf("failed to set instance metrics, %v", err)
+	}
+	gwg.Wait()
+
+	return stackMap, serviceMap
 }

@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
-	logger "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
+	logger "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
@@ -20,14 +21,15 @@ var (
 	cattleAccessKey string
 	cattleSecretKey string
 	hideSys         bool
+	timeout         time.Duration
 )
 
 func main() {
-	defer func() {
-		if err := recover(); err != nil {
-			logger.Error(err)
-		}
-	}()
+	// defer func() {
+	// 	if err := recover(); err != nil {
+	// 		logger.Error(err)
+	// 	}
+	// }()
 
 	app := cli.NewApp()
 	app.Name = "rancher_exporter"
@@ -68,6 +70,11 @@ func main() {
 			EnvVar:      "CATTLE_SECRET_KEY",
 			Destination: &cattleSecretKey,
 		},
+		cli.DurationFlag{
+			Name:        "http_timeout",
+			Value:       30 * time.Second,
+			Destination: &timeout,
+		},
 		cli.StringFlag{
 			Name:   "log_level",
 			Usage:  "Set the logging level",
@@ -82,7 +89,9 @@ func main() {
 		},
 	}
 
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		panic(err)
+	}
 }
 
 func appAction(c *cli.Context) {
