@@ -15,7 +15,9 @@ steps:
       target: builder
       dry_run: true
       build_args:
-        - GOPROXY=https://goproxy.cn,direct
+        - GOPROXY='https://goproxy.cn,direct'
+        - ALPINE_CDN=mirrors.ustc.edu.cn
+        - PROMU_DOWNLOAD_URL=https://dev-tool.oss-cn-shenzhen.aliyuncs.com/promu
     when:
       event:
         - pull_request
@@ -34,7 +36,9 @@ steps:
       password: 
         from_secret: registry-password
       build_args:
-        - GOPROXY=https://goproxy.cn,direct
+        - GOPROXY='https://goproxy.cn,direct'
+        - ALPINE_CDN=mirrors.ustc.edu.cn
+        - PROMU_DOWNLOAD_URL=https://dev-tool.oss-cn-shenzhen.aliyuncs.com/promu
     when:
       ref:
         - refs/heads/master
@@ -56,7 +60,9 @@ steps:
       password: 
         from_secret: registry-password
       build_args:
-        - GOPROXY=https://goproxy.cn,direct
+        - GOPROXY='https://goproxy.cn,direct'
+        - ALPINE_CDN=mirrors.ustc.edu.cn
+        - PROMU_DOWNLOAD_URL=https://dev-tool.oss-cn-shenzhen.aliyuncs.com/promu
     when:
       event:
         - tag
