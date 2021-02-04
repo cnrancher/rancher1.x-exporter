@@ -1,0 +1,43 @@
+---
+kind: pipeline
+type: docker
+name: kube-runner
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+  - name: build-for-pr
+    image: plugins/docker
+    settings:
+      registry: reg.cnrancher.com
+      repo: cnrancher/rancher-exporter
+      target: builder
+      dry_run: true
+      username: 
+        from_secret: registry-username
+      password: 
+        from_secret: registry-password
+    when:
+      event:
+        - pull_request
+  - name: build-for-master
+    image: plugins/docker
+    settings:
+      registry: reg.cnrancher.com
+      repo: cnrancher/rancher-exporter
+      target: builder
+      auto_tag: true
+      auto_tag_suffix: amd64
+      username: 
+        from_secret: registry-username
+      password: 
+        from_secret: registry-password
+    when:
+      ref:
+        - refs/heads/master
+        - refs/tags/*
+      event:
+        - push
+        - tag
