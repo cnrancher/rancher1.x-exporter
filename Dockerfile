@@ -3,14 +3,21 @@
 #############
 FROM golang:1.15.7-alpine AS builder
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
+ENV PROMU_VERSION=0.7.0
+ARG GOPROXY
+ARG PROMU_DOWNLOAD_URL=https://github.com/prometheus/promu/releases/download
+ARG ALPINE_CDN="dl-cdn.alpinelinux.org"
+ENV GOPROXY=${GOPROXY}
+ENV ALPINE_CDN=${ALPINE_CDN}
+RUN sed -i "s/dl-cdn.alpinelinux.org/${ALPINE_CDN}/g" /etc/apk/repositories && \
     apk add --no-cache --update curl git && \
     mkdir -p ${GOPATH}/src/github.com/cnrancher && \
-    go get -u github.com/prometheus/promu
+    curl -sSL "${PROMU_DOWNLOAD_URL}/v${PROMU_VERSION}/promu-${PROMU_VERSION}.linux-amd64.tar.gz" | tar -xzf - -C ./ && \
+    mv ./promu*/promu /usr/local/bin/
 COPY . $GOPATH/src/github.com/cnrancher/rancher1.x-exporter
 ## build
 RUN cd $GOPATH/src/github.com/cnrancher/rancher1.x-exporter; \
-    $GOPATH/bin/promu build --prefix ./.build; \
+    promu build --prefix ./.build; \
     mkdir -p /build; \
     cp -f ./.build/rancher-exporter /build/
 
