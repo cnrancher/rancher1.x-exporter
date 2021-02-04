@@ -3,7 +3,8 @@
 #############
 FROM golang:1.15.7-alpine AS builder
 
-RUN apk add --no-cache --update curl git && \
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
+    apk add --no-cache --update curl git && \
     mkdir -p ${GOPATH}/src/github.com/cnrancher && \
     go get -u github.com/prometheus/promu
 COPY . $GOPATH/src/github.com/cnrancher/rancher1.x-exporter
@@ -16,7 +17,7 @@ RUN cd $GOPATH/src/github.com/cnrancher/rancher1.x-exporter; \
 #############
 # phase two #
 #############
-FROM alpine:3.7 AS runner
+FROM alpine AS runner
 
 ARG VERSION
 
@@ -32,7 +33,8 @@ LABEL \
     org.label-schema.license="Apache 2.0" \
     org.label-schema.docker.dockerfile="/Dockerfile"
 
-RUN apk add --no-cache --update \
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
+    apk add --no-cache --update \
     ca-certificates \
     ; \
     mkdir -p /data; \
