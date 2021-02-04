@@ -26,8 +26,7 @@ steps:
       registry: reg.cnrancher.com
       repo: reg.cnrancher.com/cnrancher/rancher-exporter
       target: runner
-      auto_tag: true
-      auto_tag_suffix: amd64
+      tag: "master-amd64"
       username: 
         from_secret: registry-username
       password: 
@@ -35,9 +34,25 @@ steps:
     when:
       ref:
         - refs/heads/master
-        - refs/tags/*
       event:
         - push
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+  - name: build-for-tag
+    image: plugins/docker
+    settings:
+      registry: reg.cnrancher.com
+      repo: reg.cnrancher.com/cnrancher/rancher-exporter
+      target: runner
+      auto_tag: true
+      auto_tag_suffix: amd64
+      username: 
+        from_secret: registry-username
+      password: 
+        from_secret: registry-password
+    when:
+      event:
         - tag
     volumes:
       - name: docker
