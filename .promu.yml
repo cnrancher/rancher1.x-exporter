@@ -4,7 +4,7 @@ repository:
 build:
     binaries:
         - name: rancher-exporter
-    flags: -a -tags netgo
+    flags: -a -tags netgo -mod=vendor
     ldflags: |
         -X {{repoPath}}/vendor/github.com/prometheus/common/version.Version={{.Version}}
         -X {{repoPath}}/vendor/github.com/prometheus/common/version.Revision={{.Revision}}

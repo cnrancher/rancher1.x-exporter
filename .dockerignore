@@ -2,7 +2,6 @@
 .gitignore
 
 /.idea
-/vendor
 /bin
 /hooks
 LICENSE
