@@ -11,23 +11,21 @@ steps:
   - name: build-for-pr
     image: plugins/docker
     settings:
-      registry: reg.cnrancher.com
-      repo: cnrancher/rancher-exporter
+      repo: reg.cnrancher.com/cnrancher/rancher-exporter
       target: builder
       dry_run: true
-      username: 
-        from_secret: registry-username
-      password: 
-        from_secret: registry-password
     when:
       event:
         - pull_request
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
   - name: build-for-master
     image: plugins/docker
     settings:
       registry: reg.cnrancher.com
-      repo: cnrancher/rancher-exporter
-      target: builder
+      repo: reg.cnrancher.com/cnrancher/rancher-exporter
+      target: runner
       auto_tag: true
       auto_tag_suffix: amd64
       username: 
@@ -41,3 +39,10 @@ steps:
       event:
         - push
         - tag
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+volumes:
+  - name: docker
+    host:
+      path: /var/run/docker.sock
