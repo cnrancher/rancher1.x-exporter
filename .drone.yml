@@ -14,6 +14,8 @@ steps:
       repo: reg.cnrancher.com/cnrancher/rancher-exporter
       target: builder
       dry_run: true
+      build_args:
+        - GOPROXY=https://goproxy.cn,direct
     when:
       event:
         - pull_request
@@ -31,6 +33,8 @@ steps:
         from_secret: registry-username
       password: 
         from_secret: registry-password
+      build_args:
+        - GOPROXY=https://goproxy.cn,direct
     when:
       ref:
         - refs/heads/master
@@ -51,6 +55,8 @@ steps:
         from_secret: registry-username
       password: 
         from_secret: registry-password
+      build_args:
+        - GOPROXY=https://goproxy.cn,direct
     when:
       event:
         - tag

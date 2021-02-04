@@ -3,7 +3,6 @@
 #############
 FROM golang:1.15.7-alpine AS builder
 
-ENV GOPROXY="https://goproxy.cn,direct"
 RUN apk add --no-cache --update curl git && \
     mkdir -p ${GOPATH}/src/github.com/cnrancher && \
     go get -u github.com/prometheus/promu
